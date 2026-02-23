@@ -3,6 +3,6 @@
   "description": "Download Spotify playlists & albums for offline listening. One-click setup.",
   "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-7 3h14v2H5v-2z\"/></svg>",
   "active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path fill=\"#1DB954\" d=\"M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-7 3h14v2H5v-2z\"/></svg>",
-  "subfiles": ["settings.js", "app.js"],
+  "subfiles": ["settings.js"],
   "subfiles_extension": ["downloader.js"]
 }
