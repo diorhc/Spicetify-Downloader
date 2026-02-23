@@ -1,53 +1,83 @@
 (function SpicetifyDownloader() {
-  const API_URL = "http://localhost:8765";
+  "use strict";
 
+  const API_URL = "http://localhost:8765";
   let isDownloading = false;
-  let injectedButtons = new Set();
 
   const QUALITY_OPTIONS = [
-    { value: "128", label: "128 kbps (Low)" },
-    { value: "160", label: "160 kbps (Medium)" },
-    { value: "320", label: "320 kbps (High)" },
+    { value: "128", label: "128 kbps - Low (smaller files)" },
+    { value: "160", label: "160 kbps - Medium" },
+    { value: "320", label: "320 kbps - High (recommended)" },
   ];
 
-  async function getConfig() {
-    try {
-      const res = await fetch(`${API_URL}/config`);
-      return await res.json();
-    } catch {
-      return { quality: "320" };
+  // Get the Spotify web URL for the currently viewed page.
+  // Uses Spicetify.Platform.History (correct desktop API) instead of
+  // window.location.href which does not work in the desktop client.
+  function getCurrentPageUrl() {
+    const pathname =
+      Spicetify?.Platform?.History?.location?.pathname || "";
+
+    const playlistMatch = pathname.match(/^\/playlist\/([A-Za-z0-9]+)/);
+    if (playlistMatch) {
+      return {
+        url: "https://open.spotify.com/playlist/" + playlistMatch[1],
+        type: "playlist",
+      };
     }
+
+    const albumMatch = pathname.match(/^\/album\/([A-Za-z0-9]+)/);
+    if (albumMatch) {
+      return {
+        url: "https://open.spotify.com/album/" + albumMatch[1],
+        type: "album",
+      };
+    }
+
+    // Fallback: use the URI of whatever is currently playing
+    const contextUri = Spicetify?.Player?.data?.context_uri || "";
+    const uriMatch = contextUri.match(/spotify:(playlist|album):([A-Za-z0-9]+)/);
+    if (uriMatch) {
+      return {
+        url: "https://open.spotify.com/" + uriMatch[1] + "/" + uriMatch[2],
+        type: uriMatch[1],
+      };
+    }
+
+    return null;
   }
 
-  async function pollProgress(downloadId) {
+  function uriToUrl(uri) {
+    const m = uri.match(/spotify:(playlist|album):([A-Za-z0-9]+)/);
+    if (!m) return null;
+    return { url: "https://open.spotify.com/" + m[1] + "/" + m[2], type: m[1] };
+  }
+
+  // Poll backend for progress updates
+  function pollProgress(downloadId) {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_URL}/progress/${downloadId}`);
+        const res = await fetch(API_URL + "/progress/" + downloadId);
         const data = await res.json();
 
         if (data.status === "downloading") {
-          if (data.total > 0) {
-            Spicetify.showNotification(
-              `Downloading… ${data.done}/${data.total} tracks (${data.percent}%)`,
-            );
-          } else {
-            Spicetify.showNotification("Downloading… please wait");
-          }
+          const msg =
+            data.total > 0
+              ? "Downloading... " + data.done + "/" + data.total + " tracks (" + data.percent + "%)"
+              : "Downloading... please wait";
+          Spicetify.showNotification(msg);
         } else if (data.status === "completed") {
           clearInterval(interval);
           isDownloading = false;
-          Spicetify.showNotification(
-            "✓ Download complete! Check your Music folder.",
-          );
+          Spicetify.showNotification("Download complete! Check your Music folder.");
         } else if (data.status === "failed") {
           clearInterval(interval);
           isDownloading = false;
           Spicetify.showNotification(
-            data.error ? `Download failed: ${data.error}` : "Download failed.",
+            data.error ? "Download failed: " + data.error : "Download failed.",
             true,
           );
         }
-      } catch {
+      } catch (_) {
         // server temporarily unreachable, keep polling
       }
     }, 3000);
@@ -58,204 +88,161 @@
       Spicetify.showNotification("A download is already in progress!", true);
       return;
     }
-
     isDownloading = true;
-    Spicetify.showNotification("Starting download…");
+    Spicetify.showNotification("Starting download at " + quality + " kbps...");
 
     try {
-      const res = await fetch(`${API_URL}/download`, {
+      const res = await fetch(API_URL + "/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, quality }),
+        body: JSON.stringify({ url: url, quality: quality }),
       });
-
       const data = await res.json();
 
       if (data.status === "started") {
-        Spicetify.showNotification(`Download started at ${quality} kbps`);
         pollProgress(data.download_id);
       } else {
-        Spicetify.showNotification(
-          data.error || "Failed to start download.",
-          true,
-        );
+        Spicetify.showNotification(data.error || "Failed to start download.", true);
         isDownloading = false;
       }
-    } catch {
+    } catch (_) {
       Spicetify.showNotification(
-        "Cannot reach the server. Make sure Spicetify Downloader is running.",
+        "Cannot reach server. Is it running? Re-run install.bat.",
         true,
       );
       isDownloading = false;
     }
   }
 
-  function createQualityModal(spotifyUrl, name) {
-    const modalContent = document.createElement("div");
-    modalContent.style.cssText = `
-            padding: 20px;
-            text-align: center;
-        `;
+  // Quality selection modal
+  function showQualityModal(spotifyUrl, name) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "padding:24px;text-align:center;min-width:260px";
 
     const title = document.createElement("h2");
-    title.textContent = "Download Quality";
-    title.style.cssText = "margin-bottom: 10px; color: #fff;";
-    modalContent.appendChild(title);
+    title.textContent = "Choose Quality";
+    title.style.cssText = "margin:0 0 8px;color:#fff;font-size:18px;font-weight:700";
+    wrap.appendChild(title);
 
-    const subtitle = document.createElement("p");
-    subtitle.textContent = name || "Selected tracks";
-    subtitle.style.cssText = "color: #b3b3b3; margin-bottom: 20px;";
-    modalContent.appendChild(subtitle);
+    if (name) {
+      const sub = document.createElement("p");
+      sub.textContent = name;
+      sub.style.cssText = "color:#b3b3b3;margin:0 0 20px;font-size:13px";
+      wrap.appendChild(sub);
+    }
 
-    const buttonsDiv = document.createElement("div");
-    buttonsDiv.style.cssText =
-      "display: flex; flex-direction: column; gap: 10px;";
+    const btns = document.createElement("div");
+    btns.style.cssText = "display:flex;flex-direction:column;gap:10px;margin-top:20px";
 
-    QUALITY_OPTIONS.forEach((opt) => {
+    QUALITY_OPTIONS.forEach(function(opt) {
       const btn = document.createElement("button");
       btn.textContent = opt.label;
-      btn.style.cssText = `
-                padding: 12px 24px;
-                background: #282828;
-                color: #fff;
-                border: none;
-                border-radius: 20px;
-                cursor: pointer;
-                font-size: 14px;
-                transition: background 0.2s;
-            `;
-      btn.onmouseenter = () => (btn.style.background = "#383838");
-      btn.onmouseleave = () => (btn.style.background = "#282828");
-      btn.onclick = () => {
+      btn.style.cssText = "padding:12px 24px;background:#282828;color:#fff;border:1px solid #3e3e3e;border-radius:24px;cursor:pointer;font-size:14px;transition:all .15s";
+      btn.onmouseenter = function() {
+        btn.style.background = "#1DB954";
+        btn.style.borderColor = "#1DB954";
+        btn.style.color = "#000";
+      };
+      btn.onmouseleave = function() {
+        btn.style.background = "#282828";
+        btn.style.borderColor = "#3e3e3e";
+        btn.style.color = "#fff";
+      };
+      btn.onclick = function() {
         Spicetify.PopupModal.hide();
         startDownload(spotifyUrl, opt.value);
       };
-      buttonsDiv.appendChild(btn);
+      btns.appendChild(btn);
     });
 
-    modalContent.appendChild(buttonsDiv);
+    wrap.appendChild(btns);
 
     Spicetify.PopupModal.display({
       title: "Spicetify Downloader",
-      content: modalContent,
+      content: wrap,
       isLarge: false,
     });
   }
 
-  function getSpotifyUrlFromPage() {
-    const url = window.location.href;
+  // Right-click context menu on playlists and albums
+  function registerContextMenu() {
+    if (!Spicetify.ContextMenu) return;
 
-    const playlistMatch = url.match(/playlist\/([a-zA-Z0-9]+)/);
-    if (playlistMatch) {
-      return {
-        url: `https://open.spotify.com/playlist/${playlistMatch[1]}`,
-        name: getPlaylistName(),
-        type: "playlist",
-      };
-    }
+    var shouldShow = function(uris) {
+      var u = uris[0] || "";
+      return u.startsWith("spotify:playlist:") || u.startsWith("spotify:album:");
+    };
 
-    const albumMatch = url.match(/album\/([a-zA-Z0-9]+)/);
-    if (albumMatch) {
-      return {
-        url: `https://open.spotify.com/album/${albumMatch[1]}`,
-        name: getAlbumName(),
-        type: "album",
-      };
-    }
-
-    return null;
-  }
-
-  function getPlaylistName() {
-    const selectors = [
-      '[data-testid="playlist-details"] h1',
-      ".main-view-container__scroll-node h1",
-      ".playlist-details h1",
-      "header h1",
-    ];
-
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) return el.textContent.trim();
-    }
-
-    return "Playlist";
-  }
-
-  function getAlbumName() {
-    const selectors = [
-      '[data-testid="album-details"] h1',
-      ".main-view-container__scroll-node h1",
-      "header h1",
-    ];
-
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) return el.textContent.trim();
-    }
-
-    return "Album";
-  }
-
-  function findDownloadButtons() {
-    const buttons = [];
-
-    const allButtons = document.querySelectorAll("button");
-    allButtons.forEach((btn) => {
-      if (injectedButtons.has(btn)) return;
-
-      const ariaLabel = btn.getAttribute("aria-label");
-      const svg = btn.querySelector("svg");
-
-      if (!svg) return;
-
-      const isDownloadBtn =
-        ariaLabel &&
-        ariaLabel.toLowerCase().includes("download") &&
-        !ariaLabel.toLowerCase().includes("make available offline");
-
-      if (isDownloadBtn) {
-        buttons.push(btn);
+    var onSelect = function(uris) {
+      var data = uriToUrl(uris[0]);
+      if (!data) {
+        Spicetify.showNotification("Cannot download this item.", true);
+        return;
       }
-    });
+      showQualityModal(data.url, "");
+    };
 
-    return buttons;
+    new Spicetify.ContextMenu.Item(
+      "Download with SpotDL",
+      onSelect,
+      shouldShow,
+      "download",
+    ).register();
   }
 
-  function injectDownloadHandlers() {
-    const downloadButtons = findDownloadButtons();
+  // Topbar download button (Ctrl+Shift+D shortcut always works even without topbar)
+  function addTopbarButton() {
+    if (!Spicetify.Topbar || !Spicetify.Topbar.Button) return;
 
-    downloadButtons.forEach((btn) => {
-      injectedButtons.add(btn);
+    var ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-7 3h14v2H5v-2z"/></svg>';
 
-      btn.addEventListener("click", async (e) => {
+    new Spicetify.Topbar.Button("Download", ICON, function() {
+      var data = getCurrentPageUrl();
+      if (!data) {
+        Spicetify.showNotification(
+          "Navigate to a playlist or album, then click Download.",
+          true,
+        );
+        return;
+      }
+      showQualityModal(data.url, "");
+    });
+  }
+
+  // Keyboard shortcut: Ctrl+Shift+D
+  function registerKeyboard() {
+    document.addEventListener("keydown", function(e) {
+      if (e.ctrlKey && e.shiftKey && e.key === "D") {
         e.preventDefault();
-        e.stopPropagation();
-
-        const spotifyData = getSpotifyUrlFromPage();
-
-        if (spotifyData) {
-          createQualityModal(spotifyData.url, spotifyData.name);
-        } else {
-          Spicetify.showNotification(
-            "Unable to get URL. Navigate to a playlist or album.",
-            true,
-          );
+        var data = getCurrentPageUrl();
+        if (!data) {
+          Spicetify.showNotification("Navigate to a playlist or album first.", true);
+          return;
         }
-      });
+        showQualityModal(data.url, "");
+      }
     });
   }
 
   function init() {
-    setInterval(injectDownloadHandlers, 2000);
-    injectDownloadHandlers();
-    console.log("Spicetify Downloader Extension loaded");
+    registerContextMenu();
+    addTopbarButton();
+    registerKeyboard();
+    console.info("[SpicetifyDownloader] Extension loaded. Server:", API_URL);
   }
 
-  if (!Spicetify.Player || !Spicetify.Platform) {
-    setTimeout(init, 1000);
-    return;
+  // Wait for Spicetify APIs to be ready before running
+  function waitForSpicetify() {
+    if (
+      typeof Spicetify !== "undefined" &&
+      Spicetify.Platform &&
+      Spicetify.showNotification
+    ) {
+      init();
+    } else {
+      setTimeout(waitForSpicetify, 200);
+    }
   }
 
-  init();
+  waitForSpicetify();
 })();

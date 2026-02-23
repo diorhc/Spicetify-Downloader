@@ -98,7 +98,7 @@ echo  [4/4] Setting up the extension in Spotify...
 
 :: Detect actual Spicetify data path (works on both old and new versions)
 for /f "tokens=*" %%p in ('spicetify path userdata 2^>nul') do set "SPICETIFY_USERDATA=%%p"
-if not defined SPICETIFY_USERDATA set "SPICETIFY_USERDATA=%LOCALAPPDATA%\spicetify"
+if not defined SPICETIFY_USERDATA set "SPICETIFY_USERDATA=%APPDATA%\spicetify"
 
 set "CUSTOM_APP_PATH=!SPICETIFY_USERDATA!\CustomApps\spicetify-downloader"
 set "BACKEND_PATH=!CUSTOM_APP_PATH!\backend"
@@ -137,9 +137,9 @@ set "VBS=!STARTUP!\SpicetifyDownloaderServer.vbs"
     echo W.Run chr^(34^) ^& "!PYTHON_EXE!" ^& chr^(34^) ^& " " ^& chr^(34^) ^& "!SERVER_PY!" ^& chr^(34^), 0, False
 ) > "!VBS!"
 
-:: Kill any old server, start fresh
+:: Kill any old server, start fresh (use pythonw for background execution)
 taskkill /f /im pythonw.exe >nul 2>&1
-powershell -NoProfile -WindowStyle Hidden -Command "Start-Process '!PYTHON_EXE!' -ArgumentList '\"!SERVER_PY!\"' -WindowStyle Hidden"
+start "" /min "!PYTHON_EXE!" "!SERVER_PY!"
 
 :: ======================================================================
 echo.
@@ -149,7 +149,8 @@ echo  ==========================================
 echo.
 echo   How to download music:
 echo   1. Open any playlist or album in Spotify
-echo   2. Click "Spicetify Downloader" in the left sidebar
-echo   3. The Download button appears on playlists and albums
+echo   2. RIGHT-CLICK the playlist/album and choose "Download with SpotDL"
+echo      OR press Ctrl+Shift+D
+echo      OR open "Spicetify Downloader" in the left sidebar
 echo.
 pause
