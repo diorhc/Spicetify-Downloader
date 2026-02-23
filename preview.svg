@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#191414"/>
+  <rect x="50" y="50" width="1100" height="530" rx="20" fill="#282828"/>
+  
+  <text x="600" y="150" font-family="Arial" font-size="48" fill="#1DB954" text-anchor="middle" font-weight="bold">Spicetify Downloader</text>
+  
+  <rect x="150" y="200" width="900" height="280" rx="15" fill="#333333"/>
+  
+  <text x="200" y="260" font-family="Arial" font-size="24" fill="#FFFFFF">Download playlists with one click</text>
+  <text x="200" y="310" font-family="Arial" font-size="24" fill="#FFFFFF">Select audio quality (128/160/320 kbps)</text>
+  <text x="200" y="360" font-family="Arial" font-size="24" fill="#FFFFFF">Custom download folder</text>
+  <text x="200" y="410" font-family="Arial" font-size="24" fill="#FFFFFF">Seamless Spotify integration</text>
+  
+  <circle cx="1000" cy="500" r="60" fill="#1DB954"/>
+  <path d="M970 500 L1000 470 L1030 500 L1000 530 Z" fill="#191414"/>
+  
+  <text x="600" y="580" font-family="Arial" font-size="18" fill="#B3B3B3" text-anchor="middle">Requires Python + SpotDL</text>
+</svg>

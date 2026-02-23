@@ -1,0 +1,7 @@
+{
+    "name": "Spicetify Downloader",
+    "description": "Download Spotify music for offline listening with quality selection (128/160/320 kbps). Requires Python and SpotDL.",
+    "preview": "preview.svg",
+    "readme": "README.md",
+    "tags": ["download", "offline", "music", "playlist"]
+}
