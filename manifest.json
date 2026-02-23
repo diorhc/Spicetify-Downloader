@@ -1,8 +1,9 @@
 {
   "name": "Spicetify Downloader",
-  "description": "Download Spotify playlists & albums for offline listening with one click. Automatically installs all dependencies. Quality selector (128/160/320 kbps). Windows, Linux, macOS.",
-  "preview": "preview.svg",
-  "readme": "README.md",
-  "tags": ["download", "offline", "music", "playlist", "spotdl"],
-  "custom_app": "custom-app"
-}
+    "description": "Download Spotify playlists & albums for offline listening with one click. Installs all dependencies automatically. Quality selector: 128 / 160 / 320 kbps. Works on Windows, Linux, macOS.",
+    "preview": "preview.svg",
+    "readme": "README.md",
+    "authors": [
+        { "name": "diorhc", "url": "https://github.com/diorhc" }
+    ],
+    "tags": ["download", "offline", "music", "playlist", "spotdl"]
