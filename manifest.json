@@ -1,7 +1,8 @@
 {
-    "name": "Spicetify Downloader",
-    "description": "Download Spotify music for offline listening with quality selection (128/160/320 kbps). Requires Python and SpotDL.",
-    "preview": "preview.svg",
-    "readme": "README.md",
-    "tags": ["download", "offline", "music", "playlist"]
+  "name": "Spicetify Downloader",
+  "description": "Download Spotify playlists & albums for offline listening with one click. Automatically installs all dependencies. Quality selector (128/160/320 kbps). Windows, Linux, macOS.",
+  "preview": "preview.svg",
+  "readme": "README.md",
+  "tags": ["download", "offline", "music", "playlist", "spotdl"],
+  "custom_app": "custom-app"
 }
