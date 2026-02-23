@@ -1,99 +1,137 @@
 @echo off
 setlocal enabledelayedexpansion
 title Spicetify Downloader — Installer
+chcp 65001 >nul 2>&1
 
 echo.
 echo  ==========================================
 echo    Spicetify Downloader — Easy Installer
 echo  ==========================================
 echo.
+echo  This will install everything automatically.
+echo  Just wait — no extra steps needed.
+echo.
 
-:: ── 1. Check Python ──────────────────────────────────────────────────────────
-echo  [1/5] Checking Python...
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: 1. Python
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo  [1/4] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo.
-    echo  [!] Python not found!
-    echo      Please install Python 3.8 or newer:
-    echo      https://www.python.org/downloads/
-    echo.
-    echo      Make sure to check "Add Python to PATH" during install.
-    echo.
-    pause
-    exit /b 1
+    echo         Not found — installing Python automatically...
+    winget --version >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo  [!] Cannot install Python automatically on this PC.
+        echo      Please install Python 3.8+ from: https://www.python.org/downloads/
+        echo      During install, tick "Add Python to PATH", then re-run this file.
+        echo.
+        pause & exit /b 1
+    )
+    winget install Python.Python.3 --accept-package-agreements --accept-source-agreements --silent
+    if errorlevel 1 (
+        echo.
+        echo  [!] Python install failed.
+        echo      Please install it manually: https://www.python.org/downloads/
+        echo.
+        pause & exit /b 1
+    )
+    :: Refresh PATH so python is visible in this session
+    for /f "tokens=*" %%i in ('powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable(\"PATH\",\"Machine\") + \";\" + [System.Environment]::GetEnvironmentVariable(\"PATH\",\"User\")"') do set "PATH=%%i"
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo  [!] Python installed but not yet in PATH.
+        echo      Please close this window, reopen it, and run install.bat again.
+        echo.
+        pause & exit /b 1
+    )
 )
 for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
-echo      Python %PYVER% found. OK
+echo         Python %PYVER% — OK
 
-:: ── 2. Install SpotDL ────────────────────────────────────────────────────────
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: 2. Spicetify
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo.
-echo  [2/5] Installing SpotDL (music downloader)...
+echo  [2/4] Checking Spicetify...
+where spicetify >nul 2>&1
+if errorlevel 1 (
+    echo         Not found — installing Spicetify automatically...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "iwr -useb https://raw.githubusercontent.com/spicetify/cli/main/install.ps1 | iex" ^
+        >nul 2>&1
+    :: Refresh PATH
+    for /f "tokens=*" %%i in ('powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable(\"PATH\",\"Machine\") + \";\" + [System.Environment]::GetEnvironmentVariable(\"PATH\",\"User\")"') do set "PATH=%%i"
+    where spicetify >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo  [!] Spicetify installed but not yet in PATH.
+        echo      Please close this window, reopen it, and run install.bat again.
+        echo.
+        pause & exit /b 1
+    )
+)
+for /f "tokens=*" %%v in ('spicetify --version 2^>^&1') do set SPVER=%%v
+echo         Spicetify %SPVER% — OK
+
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: 3. SpotDL + copy files + configure Spicetify
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo.
+echo  [3/4] Installing music downloader (SpotDL)...
 python -m pip install --quiet --upgrade spotdl
 if errorlevel 1 (
-    echo  [!] Failed to install SpotDL. Check your internet connection.
-    pause
-    exit /b 1
+    echo  [!] SpotDL install failed. Check your internet connection and try again.
+    pause & exit /b 1
 )
-echo      SpotDL installed. OK
+echo         SpotDL — OK
 
-:: ── 3. Copy files ────────────────────────────────────────────────────────────
 echo.
-echo  [3/5] Copying files...
+echo  [4/4] Setting up the extension in Spotify...
+
 set "SPICETIFY_PATH=%appdata%\spicetify"
 set "CUSTOM_APP_PATH=%SPICETIFY_PATH%\CustomApps\spicetify-downloader"
 
 if not exist "%CUSTOM_APP_PATH%" mkdir "%CUSTOM_APP_PATH%"
 
-copy /Y "custom-app\manifest.json" "%CUSTOM_APP_PATH%\" >nul
-copy /Y "custom-app\app.js"        "%CUSTOM_APP_PATH%\" >nul
-copy /Y "custom-app\settings.js"   "%CUSTOM_APP_PATH%\" >nul
-copy /Y "custom-app\downloader.js" "%CUSTOM_APP_PATH%\" >nul
-copy /Y "backend\server.py"        "%SPICETIFY_PATH%\"  >nul
-copy /Y "backend\requirements.txt" "%SPICETIFY_PATH%\"  >nul
-echo      Done. OK
+copy /Y "custom-app\manifest.json" "%CUSTOM_APP_PATH%\" >nul 2>&1
+copy /Y "custom-app\app.js"        "%CUSTOM_APP_PATH%\" >nul 2>&1
+copy /Y "custom-app\settings.js"   "%CUSTOM_APP_PATH%\" >nul 2>&1
+copy /Y "custom-app\downloader.js" "%CUSTOM_APP_PATH%\" >nul 2>&1
+copy /Y "backend\server.py"        "%SPICETIFY_PATH%\"  >nul 2>&1
+copy /Y "backend\requirements.txt" "%SPICETIFY_PATH%\"  >nul 2>&1
 
-:: ── 4. Configure Spicetify ───────────────────────────────────────────────────
-echo.
-echo  [4/5] Configuring Spicetify...
-where spicetify >nul 2>&1
+spicetify backup apply >nul 2>&1
+spicetify config custom_apps spicetify-downloader >nul 2>&1
+spicetify apply >nul 2>&1
 if errorlevel 1 (
-    echo  [!] Spicetify not found in PATH.
-    echo      Please install Spicetify first: https://spicetify.app/docs/getting-started
-    pause
-    exit /b 1
+    echo  [!] Spicetify apply failed. Make sure Spotify is closed and try again.
+    pause & exit /b 1
 )
-spicetify config custom_apps spicetify-downloader >nul
-spicetify apply >nul
-echo      Spicetify configured. OK
+echo         Extension installed — OK
 
-:: ── 5. Add server to Windows Startup ────────────────────────────────────────
-echo.
-echo  [5/5] Setting up auto-start (so the server starts with Windows)...
-set "STARTUP=%appdata%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "VBS=%STARTUP%\SpicetifyDownloaderServer.vbs"
-
-:: Create a VBScript that launches server.py without showing a console window
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: Auto-start: run server silently on Windows login
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+set "VBS=%appdata%\Microsoft\Windows\Start Menu\Programs\Startup\SpicetifyDownloaderServer.vbs"
 (
-echo Set oShell = CreateObject^("WScript.Shell"^)
-echo oShell.Run "pythonw ""%SPICETIFY_PATH%\server.py""", 0, False
+    echo Set oShell = CreateObject^("WScript.Shell"^)
+    echo oShell.Run "pythonw ""%SPICETIFY_PATH%\server.py""", 0, False
 ) > "%VBS%"
 
-echo      Auto-start configured. OK
+:: Start right now (no visible window)
+start "" /min pythonw "%SPICETIFY_PATH%\server.py"
 
-:: ─────────────────────────────────────────────────────────────────────────────
+:: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo.
 echo  ==========================================
-echo    Installation Complete!
+echo    Done! Open Spotify and enjoy.
 echo  ==========================================
 echo.
-echo  The server will now start automatically every time you log in to Windows.
-echo  Starting it now for this session...
-echo.
-
-:: Start the server right now in the background (no console window)
-start "" /B pythonw "%SPICETIFY_PATH%\server.py"
-timeout /t 2 >nul
-
-echo  Done! Open Spotify and you will see "Spicetify Downloader" in the sidebar.
+echo   How to download music:
+echo   1. Open any playlist or album in Spotify
+echo   2. Click the Download button (arrow icon)
+echo   3. Choose quality and wait
 echo.
 pause
