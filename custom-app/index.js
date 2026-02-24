@@ -1,5 +1,5 @@
-// Spicetify Custom App — main entry
-// Spicetify calls the global render() when the sidebar page is opened.
+// Spicetify Custom App — main entry point
+// Spicetify calls render() when the sidebar page is opened.
 
 const API_URL = "http://localhost:8765";
 const react = Spicetify.React;
@@ -45,6 +45,31 @@ function StatusBadge({ online }) {
   );
 }
 
+function DepsBadge({ label, ok }) {
+  const color = ok ? "#1DB954" : "#f59e0b";
+  return react.createElement(
+    "span",
+    {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 12,
+        color,
+      },
+    },
+    react.createElement("span", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: color,
+      },
+    }),
+    `${label}: ${ok ? "OK" : "Missing"}`,
+  );
+}
+
 function ProgressBar({ percent }) {
   return react.createElement(
     "div",
@@ -75,6 +100,7 @@ function DownloadCard({ id }) {
     done: 0,
     total: 0,
     percent: 0,
+    error: "",
   });
 
   react.useEffect(() => {
@@ -98,10 +124,12 @@ function DownloadCard({ id }) {
 
   const statusLabel =
     {
-      starting: "Starting…",
+      starting: "Starting\u2026",
       downloading:
-        info.total > 0 ? `${info.done} / ${info.total} tracks` : "Downloading…",
-      completed: "Completed ✓",
+        info.total > 0
+          ? `${info.done} / ${info.total} tracks`
+          : "Downloading\u2026",
+      completed: "Completed \u2713",
       failed: "Failed",
     }[info.status] || info.status;
 
@@ -151,11 +179,14 @@ function DownloadCard({ id }) {
   );
 }
 
+// ── Main page ──────────────────────────────────────────────────────────────
+
 function SettingsPage() {
   const [config, setConfig] = react.useState(null);
   const [online, setOnline] = react.useState(false);
   const [saving, setSaving] = react.useState(false);
   const [downloads, setDownloads] = react.useState([]);
+  const [installing, setInstalling] = react.useState(false);
 
   const loadConfig = react.useCallback(async () => {
     try {
@@ -174,7 +205,7 @@ function SettingsPage() {
     } catch {}
   }, []);
 
-  // Poll server status every 5 s
+  // Poll server every 5s
   react.useEffect(() => {
     loadConfig();
     loadDownloads();
@@ -199,14 +230,35 @@ function SettingsPage() {
       Spicetify.showNotification("Settings saved!");
     } catch {
       Spicetify.showNotification(
-        "Failed to save — is the server running?",
+        "Failed to save \u2014 is the server running?",
         true,
       );
     }
     setSaving(false);
   };
 
-  const sect = (children) =>
+  const handleInstallDeps = async () => {
+    setInstalling(true);
+    Spicetify.showNotification("Installing dependencies\u2026");
+    try {
+      const res = await fetch(`${API_URL}/install-deps`, { method: "POST" });
+      const data = await res.json();
+      if (data.spotdl && data.ffmpeg) {
+        Spicetify.showNotification("All dependencies installed!");
+      } else {
+        Spicetify.showNotification(
+          data.error || "Some dependencies could not be installed.",
+          true,
+        );
+      }
+      loadConfig();
+    } catch {
+      Spicetify.showNotification("Failed to install dependencies.", true);
+    }
+    setInstalling(false);
+  };
+
+  const sect = (...children) =>
     react.createElement("div", { className: "sd-section" }, ...children);
   const label = (text) => react.createElement("h3", null, text);
 
@@ -222,9 +274,37 @@ function SettingsPage() {
       react.createElement(StatusBadge, { online }),
     ),
 
+    // Dependency badges (when online)
+    online &&
+      config &&
+      react.createElement(
+        "div",
+        { style: { display: "flex", gap: 16, marginBottom: 16 } },
+        react.createElement(DepsBadge, {
+          label: "SpotDL",
+          ok: config.spotdl_installed,
+        }),
+        react.createElement(DepsBadge, {
+          label: "FFmpeg",
+          ok: config.ffmpeg_installed,
+        }),
+        // Show install button if something is missing
+        (!config.spotdl_installed || !config.ffmpeg_installed) &&
+          react.createElement(
+            "button",
+            {
+              className: "sd-btn-secondary",
+              onClick: handleInstallDeps,
+              disabled: installing,
+              style: { marginLeft: 8, padding: "4px 12px", fontSize: 12 },
+            },
+            installing ? "Installing\u2026" : "Install missing",
+          ),
+      ),
+
     // Offline notice
     !online &&
-      sect([
+      sect(
         react.createElement(
           "div",
           { className: "sd-alert" },
@@ -246,16 +326,16 @@ function SettingsPage() {
             "Retry connection",
           ),
         ),
-      ]),
+      ),
 
     // Active downloads
     downloads.length > 0 &&
-      sect([
+      sect(
         label("Active Downloads"),
         ...downloads.map((id) =>
           react.createElement(DownloadCard, { key: id, id }),
         ),
-      ]),
+      ),
 
     // Settings (only when online)
     online &&
@@ -264,7 +344,7 @@ function SettingsPage() {
         react.Fragment,
         null,
 
-        sect([
+        sect(
           label("Download Folder"),
           react.createElement("input", {
             className: "sd-input",
@@ -277,11 +357,11 @@ function SettingsPage() {
           react.createElement(
             "p",
             { className: "sd-hint" },
-            "Music files will be saved here.",
+            "Music files will be saved here. To play them in Spotify, add this folder under Settings \u2192 Local Files.",
           ),
-        ]),
+        ),
 
-        sect([
+        sect(
           label("Audio Quality"),
           react.createElement(
             "select",
@@ -294,22 +374,22 @@ function SettingsPage() {
             react.createElement(
               "option",
               { value: "128" },
-              "128 kbps — Low (smaller files)",
+              "128 kbps \u2014 Low (smaller files)",
             ),
             react.createElement(
               "option",
               { value: "160" },
-              "160 kbps — Medium",
+              "160 kbps \u2014 Medium",
             ),
             react.createElement(
               "option",
               { value: "320" },
-              "320 kbps — High quality (recommended)",
+              "320 kbps \u2014 High quality (recommended)",
             ),
           ),
-        ]),
+        ),
 
-        sect([
+        sect(
           react.createElement(
             "button",
             {
@@ -317,13 +397,13 @@ function SettingsPage() {
               onClick: handleSave,
               disabled: saving,
             },
-            saving ? "Saving…" : "Save Settings",
+            saving ? "Saving\u2026" : "Save Settings",
           ),
-        ]),
+        ),
       ),
 
     // How to use
-    sect([
+    sect(
       label("How to Use"),
       react.createElement(
         "ol",
@@ -331,67 +411,79 @@ function SettingsPage() {
         react.createElement(
           "li",
           null,
-          "Open any playlist or album in Spotify.",
+          "Open any playlist, album, or track in Spotify.",
         ),
         react.createElement(
           "li",
           null,
-          "Click the ",
-          react.createElement("strong", null, "Download"),
-          " button (⬇) near the play button.",
+          "Right-click \u2192 ",
+          react.createElement("strong", null, "Download with SpotDL"),
+          ", or press ",
+          react.createElement("strong", null, "Ctrl+Shift+D"),
+          ", or click the \u2B07 button in the top bar.",
         ),
         react.createElement("li", null, "Pick your preferred audio quality."),
         react.createElement(
           "li",
           null,
-          "The download runs in the background — progress appears here.",
+          "The download runs in the background \u2014 progress appears here and as notifications.",
+        ),
+        react.createElement(
+          "li",
+          null,
+          "To play downloaded music in Spotify, go to ",
+          react.createElement("strong", null, "Settings \u2192 Local Files"),
+          " and add your download folder.",
         ),
       ),
-    ]),
+    ),
   );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const CSS = `
-        .sd-wrap { padding: 32px; max-width: 620px; color: #fff; font-family: inherit; }
-        .sd-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }
-        .sd-header h1 { font-size: 26px; font-weight: 700; color: #1DB954; margin: 0; }
-        .sd-section {
-            margin-bottom: 20px; padding: 18px 20px;
-            background: rgba(255,255,255,.07);
-            border-radius: 10px;
-        }
-        .sd-section h3 { font-size: 13px; font-weight: 600; text-transform: uppercase;
-                         letter-spacing: .08em; color: #b3b3b3; margin: 0 0 12px; }
-        .sd-input, .sd-select {
-            width: 100%; padding: 10px 12px; border: 1px solid #3e3e3e;
-            border-radius: 6px; background: #121212; color: #fff;
-            font-size: 14px; box-sizing: border-box;
-        }
-        .sd-input:focus, .sd-select:focus { outline: none; border-color: #1DB954; }
-        .sd-hint { font-size: 12px; color: #727272; margin: 8px 0 0; }
-        .sd-btn {
-            width: 100%; padding: 12px; background: #1DB954; color: #000;
-            border: none; border-radius: 24px; font-size: 14px;
-            font-weight: 700; cursor: pointer; transition: background .15s;
-        }
-        .sd-btn:hover:not(:disabled) { background: #1ed760; }
-        .sd-btn:disabled { opacity: .5; cursor: default; }
-        .sd-btn-secondary {
-            margin-top: 12px; padding: 8px 18px; background: transparent;
-            color: #fff; border: 1px solid #fff; border-radius: 20px;
-            font-size: 13px; cursor: pointer; transition: background .15s;
-        }
-        .sd-btn-secondary:hover { background: rgba(255,255,255,.1); }
-        .sd-alert { padding: 4px 0; }
-        .sd-alert p { font-size: 14px; color: #b3b3b3; margin: 0 0 4px; line-height: 1.5; }
-        .sd-alert code { background: #282828; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #fff; }
-        .sd-ol { padding-left: 18px; margin: 0; color: #b3b3b3; font-size: 14px; }
-        .sd-ol li { margin-bottom: 8px; line-height: 1.5; }
-    `;
+  .sd-wrap { padding: 32px; max-width: 620px; color: #fff; font-family: inherit; }
+  .sd-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .sd-header h1 { font-size: 26px; font-weight: 700; color: #1DB954; margin: 0; }
+  .sd-section {
+    margin-bottom: 20px; padding: 18px 20px;
+    background: rgba(255,255,255,.07);
+    border-radius: 10px;
+  }
+  .sd-section h3 {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .08em; color: #b3b3b3; margin: 0 0 12px;
+  }
+  .sd-input, .sd-select {
+    width: 100%; padding: 10px 12px; border: 1px solid #3e3e3e;
+    border-radius: 6px; background: #121212; color: #fff;
+    font-size: 14px; box-sizing: border-box;
+  }
+  .sd-input:focus, .sd-select:focus { outline: none; border-color: #1DB954; }
+  .sd-hint { font-size: 12px; color: #727272; margin: 8px 0 0; }
+  .sd-btn {
+    width: 100%; padding: 12px; background: #1DB954; color: #000;
+    border: none; border-radius: 24px; font-size: 14px;
+    font-weight: 700; cursor: pointer; transition: background .15s;
+  }
+  .sd-btn:hover:not(:disabled) { background: #1ed760; }
+  .sd-btn:disabled { opacity: .5; cursor: default; }
+  .sd-btn-secondary {
+    margin-top: 12px; padding: 8px 18px; background: transparent;
+    color: #fff; border: 1px solid #fff; border-radius: 20px;
+    font-size: 13px; cursor: pointer; transition: background .15s;
+  }
+  .sd-btn-secondary:hover { background: rgba(255,255,255,.1); }
+  .sd-alert { padding: 4px 0; }
+  .sd-alert p { font-size: 14px; color: #b3b3b3; margin: 0 0 4px; line-height: 1.5; }
+  .sd-alert code { background: #282828; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #fff; }
+  .sd-ol { padding-left: 18px; margin: 0; color: #b3b3b3; font-size: 14px; }
+  .sd-ol li { margin-bottom: 8px; line-height: 1.5; }
+`;
 
-// ── CSS injection (once) ───────────────────────────────────────────────────────
+// ── CSS injection ──────────────────────────────────────────────────────────
+
 let _cssInjected = false;
 function injectCSS() {
   if (_cssInjected) return;
@@ -401,8 +493,8 @@ function injectCSS() {
   document.head.appendChild(el);
 }
 
-// ── Spicetify Custom App entry point ──────────────────────────────────────────
-// Spicetify calls render() each time the sidebar page is shown.
+// ── Spicetify entry point ──────────────────────────────────────────────────
+
 function render() {
   injectCSS();
   return react.createElement(SettingsPage);
