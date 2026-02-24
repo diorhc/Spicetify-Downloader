@@ -1,10 +1,24 @@
 #!/bin/bash
+# Spicetify Downloader — One-line installer for Linux / macOS.
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/diorhc/spicetify-downloader/main/install.sh | sh
+#
+# No API keys required — works out of the box.
 set -e
 
+REPO_OWNER="diorhc"
+REPO_NAME="spicetify-downloader"
+REPO_BRANCH="main"
+REPO_RAW="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}"
+APP_NAME="spicetify-downloader"
+SERVER_PORT=8765
+
 echo ""
-echo " ========================================="
-echo "   Spicetify Downloader — Easy Installer"
-echo " ========================================="
+echo " ============================================"
+echo "   Spicetify Downloader — One-Line Installer"
+echo " ============================================"
+echo ""
+echo " No API keys needed. Just wait — fully automatic."
 echo ""
 
 # ── 1. Detect OS ──────────────────────────────────────────────────────────────
@@ -24,27 +38,27 @@ fi
 echo " Detected: $OS"
 echo ""
 
-# ── 2. Check Python ──────────────────────────────────────────────────────────
-echo " [1/6] Checking Python..."
+# ── 2. Python ─────────────────────────────────────────────────────────────────
+echo " [1/7] Checking Python..."
 if ! command -v python3 &>/dev/null; then
-    echo ""
-    echo " [!] Python 3 not found!"
+    echo "     Not found — installing Python..."
     if [[ "$OS" == "macOS" ]]; then
-        echo "     Attempting to install via Homebrew..."
         if command -v brew &>/dev/null; then
             brew install python3
         else
-            echo "     Homebrew not found. Install Python manually:"
-            echo "       brew install python   OR   https://www.python.org/downloads/"
+            echo "     [!] Install Homebrew first: https://brew.sh"
+            echo "     Then re-run this installer."
             exit 1
         fi
     else
-        echo "     Attempting to install via apt..."
         if command -v apt &>/dev/null; then
             sudo apt update -qq && sudo apt install -y -qq python3 python3-pip python3-venv
+        elif command -v dnf &>/dev/null; then
+            sudo dnf install -y python3 python3-pip
+        elif command -v pacman &>/dev/null; then
+            sudo pacman -Sy --noconfirm python python-pip
         else
-            echo "     apt not found. Install Python manually:"
-            echo "       sudo dnf install python3   OR   https://www.python.org/downloads/"
+            echo "     [!] Install Python 3.8+ manually: https://www.python.org/downloads/"
             exit 1
         fi
     fi
@@ -52,37 +66,39 @@ fi
 PYVER=$(python3 --version 2>&1 | awk '{print $2}')
 echo "     Python $PYVER — OK"
 
-# ── 3. Check/Install Spicetify ──────────────────────────────────────────────
+# ── 3. Spicetify ──────────────────────────────────────────────────────────────
 echo ""
-echo " [2/6] Checking Spicetify..."
+echo " [2/7] Checking Spicetify..."
 if ! command -v spicetify &>/dev/null; then
     echo "     Not found — installing Spicetify..."
     curl -fsSL https://raw.githubusercontent.com/spicetify/cli/main/install.sh | sh
-    # Add to PATH for this session
     export PATH="${HOME}/.spicetify:${PATH}"
     if ! command -v spicetify &>/dev/null; then
-        echo ""
-        echo " [!] Spicetify installed but not in PATH."
-        echo "     Close this terminal, reopen, and run install.sh again."
+        echo "     [!] Spicetify not in PATH. Close terminal, reopen, and run again."
         exit 1
     fi
 fi
 SPVER=$(spicetify --version 2>&1)
 echo "     Spicetify $SPVER — OK"
 
-# ── 4. Install SpotDL ────────────────────────────────────────────────────────
+# ── 4. Install spotdl + yt-dlp ────────────────────────────────────────────────
 echo ""
-echo " [3/6] Installing SpotDL (music downloader)..."
+echo " [3/7] Installing download engines (spotdl + yt-dlp)..."
 python3 -m pip install --quiet --upgrade spotdl 2>/dev/null || \
-    python3 -m pip install --quiet --upgrade --user spotdl
-echo "     SpotDL — OK"
+    python3 -m pip install --quiet --upgrade --user spotdl 2>/dev/null || true
+echo "     spotdl — OK"
 
-# ── 5. FFmpeg ─────────────────────────────────────────────────────────────────
+python3 -m pip install --quiet --upgrade yt-dlp 2>/dev/null || \
+    python3 -m pip install --quiet --upgrade --user yt-dlp 2>/dev/null || true
+echo "     yt-dlp — OK"
+
+# ── 5. FFmpeg ──────────────────────────────────────────────────────────────────
 echo ""
-echo " [4/6] Checking FFmpeg..."
+echo " [4/7] Checking FFmpeg..."
 if ! command -v ffmpeg &>/dev/null; then
-    echo "     FFmpeg not found — downloading via SpotDL..."
-    python3 -m spotdl --download-ffmpeg 2>/dev/null || true
+    echo "     Downloading FFmpeg via spotdl..."
+    echo "y" | python3 -m spotdl --download-ffmpeg 2>/dev/null || true
+
     if ! command -v ffmpeg &>/dev/null; then
         echo "     Trying package manager..."
         if [[ "$OS" == "macOS" ]] && command -v brew &>/dev/null; then
@@ -91,52 +107,65 @@ if ! command -v ffmpeg &>/dev/null; then
             sudo apt install -y -qq ffmpeg
         elif command -v dnf &>/dev/null; then
             sudo dnf install -y ffmpeg
+        elif command -v pacman &>/dev/null; then
+            sudo pacman -Sy --noconfirm ffmpeg
         else
-            echo "     [!] Could not install FFmpeg automatically."
-            echo "         Please install it manually: https://ffmpeg.org/download.html"
-            echo "     Trying Python fallback (imageio-ffmpeg)..."
+            echo "     Trying imageio-ffmpeg..."
             python3 -m pip install --quiet --upgrade imageio-ffmpeg 2>/dev/null || true
         fi
     fi
 fi
 echo "     FFmpeg — OK"
 
-# ── 6. Copy files ────────────────────────────────────────────────────────────
+# ── 6. Download extension files ────────────────────────────────────────────────
 echo ""
-echo " [5/6] Copying files..."
+echo " [5/7] Downloading extension files..."
 
-# Detect spicetify userdata path
 SPICETIFY_USERDATA=$(spicetify path userdata 2>/dev/null || echo "$SPICETIFY_PATH")
-
-CUSTOM_APP_PATH="${SPICETIFY_USERDATA}/CustomApps/spicetify-downloader"
+CUSTOM_APP_PATH="${SPICETIFY_USERDATA}/CustomApps/${APP_NAME}"
 BACKEND_PATH="${CUSTOM_APP_PATH}/backend"
 
 mkdir -p "$CUSTOM_APP_PATH"
 mkdir -p "$BACKEND_PATH"
 
-# Copy custom-app files
-cp -f custom-app/manifest.json "$CUSTOM_APP_PATH/"
-cp -f custom-app/index.js      "$CUSTOM_APP_PATH/"
-cp -f custom-app/settings.js   "$CUSTOM_APP_PATH/"
-cp -f custom-app/downloader.js "$CUSTOM_APP_PATH/"
-cp -f custom-app/app.js        "$CUSTOM_APP_PATH/" 2>/dev/null || true
+CUSTOM_APP_FILES=(
+    "custom-app/manifest.json"
+    "custom-app/index.js"
+    "custom-app/settings.js"
+    "custom-app/downloader.js"
+    "custom-app/app.js"
+)
+BACKEND_FILES=(
+    "backend/server.py"
+    "backend/requirements.txt"
+)
 
-# Copy backend files
-cp -f backend/server.py        "$BACKEND_PATH/"
-cp -f backend/requirements.txt "$BACKEND_PATH/"
+for file in "${CUSTOM_APP_FILES[@]}"; do
+    filename=$(basename "$file")
+    curl -fsSL "${REPO_RAW}/${file}" -o "${CUSTOM_APP_PATH}/${filename}" 2>/dev/null || \
+        echo "     [!] Failed to download: $file"
+done
 
-echo "     Files copied — OK"
+for file in "${BACKEND_FILES[@]}"; do
+    filename=$(basename "$file")
+    curl -fsSL "${REPO_RAW}/${file}" -o "${BACKEND_PATH}/${filename}" 2>/dev/null || \
+        echo "     [!] Failed to download: $file"
+done
 
-# ── 7. Configure Spicetify ───────────────────────────────────────────────────
+echo "     Files downloaded — OK"
+
+# ── 7. Configure Spicetify ─────────────────────────────────────────────────────
 echo ""
-echo " [6/6] Configuring Spicetify..."
-spicetify config custom_apps spicetify-downloader
-spicetify apply
+echo " [6/7] Configuring Spicetify..."
+spicetify config custom_apps "$APP_NAME" 2>/dev/null || true
+spicetify apply 2>/dev/null || {
+    echo "     [!] spicetify apply failed. Close Spotify and re-run."
+}
 echo "     Spicetify configured — OK"
 
-# ── 8. Set up auto-start ─────────────────────────────────────────────────────
+# ── 8. Auto-start + launch server ─────────────────────────────────────────────
 echo ""
-echo " Setting up auto-start..."
+echo " [7/7] Setting up background server..."
 
 SERVER_PY="${BACKEND_PATH}/server.py"
 PYTHON3_PATH=$(which python3)
@@ -184,35 +213,36 @@ X-GNOME-Autostart-enabled=true
 EOF
 fi
 
-echo "     Auto-start configured — OK"
+echo "     Auto-start configured"
 
-# ── Kill existing server and start fresh ───────────────────────────────────────
-echo ""
-echo " Starting server..."
+# Kill existing and start fresh
 pkill -f "server.py.*spicetify" 2>/dev/null || true
 sleep 1
 nohup python3 "$SERVER_PY" > /tmp/spicetify-downloader.log 2>&1 &
 sleep 3
 
-# Verify
-if curl -s http://localhost:8765/health | grep -q '"ok"'; then
+if curl -s "http://localhost:${SERVER_PORT}/health" | grep -q '"ok"'; then
     echo "     Server started — OK"
 else
-    echo "     [!] Server may not have started yet. Check /tmp/spicetify-downloader.log"
+    echo "     [!] Server may not have started yet."
+    echo "         Check: /tmp/spicetify-downloader.log"
 fi
 
+# ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
-echo " ========================================="
+echo " ============================================"
 echo "   Installation Complete!"
-echo " ========================================="
+echo " ============================================"
 echo ""
-echo " The server starts automatically with your system."
-echo " Open Spotify — you will see 'Spicetify Downloader' in the sidebar."
+echo " No API keys needed — everything works out of the box!"
 echo ""
 echo " How to download music:"
-echo "   - Right-click any playlist/album/track > 'Download with SpotDL'"
-echo "   - OR press Ctrl+Shift+D"
-echo "   - OR click the download button in the top bar"
+echo "   - Open album/playlist and click Spotify's Download button"
+echo "   - Right-click any track/playlist/album > 'Download for Offline'"
+echo "   - Press Ctrl+Shift+D"
 echo ""
-echo " Downloaded files: ~/Music/Spotify Downloads"
+echo " To listen offline in Spotify:"
+echo "   Settings > Local Files > Add: ~/Music/Spotify Downloads"
+echo ""
+echo " Open Spotify and enjoy!"
 echo ""

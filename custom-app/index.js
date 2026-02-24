@@ -225,6 +225,7 @@ function SettingsPage() {
         body: JSON.stringify({
           path: config.download_path,
           quality: config.quality,
+          engine: config.engine,
         }),
       });
       Spicetify.showNotification("Settings saved!");
@@ -241,9 +242,13 @@ function SettingsPage() {
     setInstalling(true);
     Spicetify.showNotification("Installing dependencies\u2026");
     try {
-      const res = await fetch(`${API_URL}/install-deps`, { method: "POST" });
+      const res = await fetch(`${API_URL}/install-deps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engine: "all" }),
+      });
       const data = await res.json();
-      if (data.spotdl && data.ffmpeg) {
+      if (data.spotdl && data.ytdlp && data.ffmpeg) {
         Spicetify.showNotification("All dependencies installed!");
       } else {
         Spicetify.showNotification(
@@ -262,6 +267,12 @@ function SettingsPage() {
     react.createElement("div", { className: "sd-section" }, ...children);
   const label = (text) => react.createElement("h3", null, text);
 
+  const anyDepsMissing =
+    config &&
+    (!config.spotdl_installed ||
+      !config.ytdlp_installed ||
+      !config.ffmpeg_installed);
+
   return react.createElement(
     "div",
     { className: "sd-wrap" },
@@ -274,22 +285,54 @@ function SettingsPage() {
       react.createElement(StatusBadge, { online }),
     ),
 
+    // "No API keys needed" badge
+    online &&
+      react.createElement(
+        "div",
+        {
+          style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 12px",
+            borderRadius: 16,
+            fontSize: 12,
+            fontWeight: 600,
+            background: "rgba(29,185,84,.1)",
+            color: "#1DB954",
+            marginBottom: 16,
+          },
+        },
+        "\u2713 No API keys required \u2014 works out of the box",
+      ),
+
     // Dependency badges (when online)
     online &&
       config &&
       react.createElement(
         "div",
-        { style: { display: "flex", gap: 16, marginBottom: 16 } },
+        {
+          style: {
+            display: "flex",
+            gap: 16,
+            marginBottom: 16,
+            flexWrap: "wrap",
+            alignItems: "center",
+          },
+        },
         react.createElement(DepsBadge, {
           label: "SpotDL",
           ok: config.spotdl_installed,
         }),
         react.createElement(DepsBadge, {
+          label: "yt-dlp",
+          ok: config.ytdlp_installed,
+        }),
+        react.createElement(DepsBadge, {
           label: "FFmpeg",
           ok: config.ffmpeg_installed,
         }),
-        // Show install button if something is missing
-        (!config.spotdl_installed || !config.ffmpeg_installed) &&
+        anyDepsMissing &&
           react.createElement(
             "button",
             {
@@ -316,9 +359,9 @@ function SettingsPage() {
           react.createElement(
             "p",
             null,
-            "It should start automatically with Windows. If it does not, re-run ",
+            "Run the installer command or ",
             react.createElement("code", null, "install.bat"),
-            " to fix auto-start.",
+            " to start it.",
           ),
           react.createElement(
             "button",
@@ -343,6 +386,43 @@ function SettingsPage() {
       react.createElement(
         react.Fragment,
         null,
+
+        // Download engine selector
+        sect(
+          label("Download Engine"),
+          react.createElement(
+            "select",
+            {
+              className: "sd-select",
+              value: config.engine || "auto",
+              onChange: (e) => setConfig({ ...config, engine: e.target.value }),
+            },
+            react.createElement(
+              "option",
+              { value: "auto" },
+              "Auto — SpotDL first, then yt-dlp fallback (recommended)",
+            ),
+            react.createElement(
+              "option",
+              { value: "spotdl" },
+              "SpotDL \u2014 Best quality, auto YouTube matching",
+            ),
+            react.createElement(
+              "option",
+              { value: "ytdlp" },
+              "yt-dlp \u2014 Direct YouTube search & download",
+            ),
+          ),
+          react.createElement(
+            "p",
+            { className: "sd-hint" },
+            config.engine === "auto"
+              ? "Auto mode tries SpotDL first, then yt-dlp. If yt-dlp has partial failures, SpotDL is tried again."
+              : config.engine === "ytdlp"
+              ? "yt-dlp searches YouTube for each track and downloads as MP3. If it fails, spotdl is used as fallback."
+              : "SpotDL matches Spotify tracks to YouTube and downloads with metadata. If it fails, yt-dlp is used as fallback.",
+          ),
+        ),
 
         sect(
           label("Download Folder"),
@@ -417,10 +497,12 @@ function SettingsPage() {
           "li",
           null,
           "Right-click \u2192 ",
-          react.createElement("strong", null, "Download with SpotDL"),
+          react.createElement("strong", null, "Download for Offline"),
           ", or press ",
           react.createElement("strong", null, "Ctrl+Shift+D"),
-          ", or click the \u2B07 button in the top bar.",
+          ", or click Spotify's ",
+          react.createElement("strong", null, "Download"),
+          " button.",
         ),
         react.createElement("li", null, "Pick your preferred audio quality."),
         react.createElement(
@@ -431,10 +513,46 @@ function SettingsPage() {
         react.createElement(
           "li",
           null,
-          "To play downloaded music in Spotify, go to ",
+          "To play downloaded music offline in Spotify, go to ",
           react.createElement("strong", null, "Settings \u2192 Local Files"),
           " and add your download folder.",
         ),
+      ),
+    ),
+
+    // Quick install section
+    sect(
+      label("Quick Install (One-Liner)"),
+      react.createElement(
+        "p",
+        { className: "sd-hint", style: { marginBottom: 8 } },
+        "Share this command with friends to install:",
+      ),
+      react.createElement(
+        "div",
+        {
+          style: {
+            background: "#121212",
+            padding: "10px 14px",
+            borderRadius: 6,
+            fontFamily: "monospace",
+            fontSize: 12,
+            color: "#1DB954",
+            wordBreak: "break-all",
+            cursor: "pointer",
+            border: "1px solid #3e3e3e",
+          },
+          onClick: () => {
+            const cmd =
+              "iwr -useb https://raw.githubusercontent.com/diorhc/spicetify-downloader/main/install.ps1 | iex";
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(cmd);
+              Spicetify.showNotification("Copied to clipboard!");
+            }
+          },
+          title: "Click to copy",
+        },
+        "iwr -useb https://raw.githubusercontent.com/diorhc/spicetify-downloader/main/install.ps1 | iex",
       ),
     ),
   );
@@ -444,7 +562,7 @@ function SettingsPage() {
 
 const CSS = `
   .sd-wrap { padding: 32px; max-width: 620px; color: #fff; font-family: inherit; }
-  .sd-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .sd-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
   .sd-header h1 { font-size: 26px; font-weight: 700; color: #1DB954; margin: 0; }
   .sd-section {
     margin-bottom: 20px; padding: 18px 20px;

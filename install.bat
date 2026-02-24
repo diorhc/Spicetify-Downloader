@@ -3,6 +3,15 @@ setlocal enabledelayedexpansion
 title Spicetify Downloader - Installer
 chcp 65001 >nul 2>&1
 
+pushd "%~dp0" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo  [!] Cannot access script directory: %~dp0
+    echo.
+    pause
+    exit /b 1
+)
+
 set "LOG=%~dp0install.log"
 if exist "%LOG%" del "%LOG%" >nul 2>&1
 
@@ -95,7 +104,17 @@ call :log "[OK] Spicetify !SPVER!"
 :: ======================================================================
 echo.
 echo  [3/5] Installing music downloader (SpotDL)...
-python -m pip install --quiet --upgrade spotdl
+python -m pip --version >nul 2>&1
+if errorlevel 1 (
+    python -m ensurepip --upgrade >nul 2>&1
+)
+python -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo  [!] pip is not available in this Python installation.
+    call :log "[ERROR] pip missing and ensurepip failed"
+    goto :err
+)
+python -m pip install --upgrade spotdl
 if errorlevel 1 (
     echo  [!] SpotDL install failed. Check your internet connection and try again.
     call :log "[ERROR] pip install spotdl failed"
@@ -104,26 +123,59 @@ if errorlevel 1 (
 echo         SpotDL -- OK
 call :log "[OK] SpotDL"
 
+echo         Installing yt-dlp (fallback engine)...
+python -m pip install --upgrade yt-dlp
+if errorlevel 1 (
+    echo  [!] yt-dlp install failed (non-critical, spotdl will still work).
+    call :log "[WARN] pip install yt-dlp failed"
+) else (
+    echo         yt-dlp -- OK
+    call :log "[OK] yt-dlp"
+)
+
+echo.
+echo  No API keys required -- everything works out of the box!
+
 :: ======================================================================
 :: 4. FFmpeg
 :: ======================================================================
 echo.
 echo  [4/5] Setting up FFmpeg...
+set "FFMPEG_READY=0"
 ffmpeg -version >nul 2>&1
-if errorlevel 1 (
+if not errorlevel 1 set "FFMPEG_READY=1"
+
+if "!FFMPEG_READY!"=="0" (
     echo         FFmpeg not in PATH - downloading via SpotDL...
     python -m spotdl --download-ffmpeg >nul 2>&1
-    if errorlevel 1 (
-        echo         Trying winget as fallback...
-        winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements --silent >nul 2>&1
-        call :refresh_path
-        ffmpeg -version >nul 2>&1
-        if errorlevel 1 (
-            echo         Trying Python fallback (imageio-ffmpeg)...
-            python -m pip install --quiet --upgrade imageio-ffmpeg >nul 2>&1
-        )
-    )
+    ffmpeg -version >nul 2>&1
+    if not errorlevel 1 set "FFMPEG_READY=1"
 )
+
+if "!FFMPEG_READY!"=="0" (
+    echo         Trying winget as fallback...
+    winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements --silent >nul 2>&1
+    call :refresh_path
+    ffmpeg -version >nul 2>&1
+    if not errorlevel 1 set "FFMPEG_READY=1"
+)
+
+if "!FFMPEG_READY!"=="0" (
+    echo         Trying Python fallback imageio-ffmpeg...
+    python -m pip install --upgrade imageio-ffmpeg >nul 2>&1
+    python -c "import imageio_ffmpeg; imageio_ffmpeg.get_ffmpeg_exe()" >nul 2>&1
+    if not errorlevel 1 set "FFMPEG_READY=1"
+)
+
+if "!FFMPEG_READY!"=="0" (
+    echo.
+    echo  [!] FFmpeg setup failed.
+    echo      Install FFmpeg manually and run install.bat again.
+    echo.
+    call :log "[ERROR] FFmpeg setup failed after all fallbacks"
+    goto :err
+)
+
 echo         FFmpeg -- OK
 call :log "[OK] FFmpeg"
 
@@ -132,6 +184,42 @@ call :log "[OK] FFmpeg"
 :: ======================================================================
 echo.
 echo  [5/5] Setting up the extension in Spotify...
+
+if not exist "custom-app\manifest.json" (
+    echo  [!] Missing file: custom-app\manifest.json
+    call :log "[ERROR] Missing source file custom-app\\manifest.json"
+    goto :err
+)
+if not exist "custom-app\index.js" (
+    echo  [!] Missing file: custom-app\index.js
+    call :log "[ERROR] Missing source file custom-app\\index.js"
+    goto :err
+)
+if not exist "custom-app\settings.js" (
+    echo  [!] Missing file: custom-app\settings.js
+    call :log "[ERROR] Missing source file custom-app\\settings.js"
+    goto :err
+)
+if not exist "custom-app\downloader.js" (
+    echo  [!] Missing file: custom-app\downloader.js
+    call :log "[ERROR] Missing source file custom-app\\downloader.js"
+    goto :err
+)
+if not exist "custom-app\app.js" (
+    echo  [!] Missing file: custom-app\app.js
+    call :log "[ERROR] Missing source file custom-app\\app.js"
+    goto :err
+)
+if not exist "backend\server.py" (
+    echo  [!] Missing file: backend\server.py
+    call :log "[ERROR] Missing source file backend\\server.py"
+    goto :err
+)
+if not exist "backend\requirements.txt" (
+    echo  [!] Missing file: backend\requirements.txt
+    call :log "[ERROR] Missing source file backend\\requirements.txt"
+    goto :err
+)
 
 for /f "tokens=*" %%p in ('spicetify path userdata 2^>nul') do set "SPICETIFY_USERDATA=%%p"
 if not defined SPICETIFY_USERDATA set "SPICETIFY_USERDATA=%APPDATA%\spicetify"
@@ -143,13 +231,29 @@ if not exist "!CUSTOM_APP_PATH!" mkdir "!CUSTOM_APP_PATH!"
 if not exist "!BACKEND_PATH!"    mkdir "!BACKEND_PATH!"
 
 copy /Y "custom-app\manifest.json" "!CUSTOM_APP_PATH!\" >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "custom-app\index.js"      "!CUSTOM_APP_PATH!\" >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "custom-app\settings.js"   "!CUSTOM_APP_PATH!\" >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "custom-app\downloader.js" "!CUSTOM_APP_PATH!\" >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "custom-app\app.js"        "!CUSTOM_APP_PATH!\" >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "backend\server.py"        "!BACKEND_PATH!\"    >nul 2>&1
+if errorlevel 1 goto :copy_err
 copy /Y "backend\requirements.txt" "!BACKEND_PATH!\"    >nul 2>&1
+if errorlevel 1 goto :copy_err
 call :log "[OK] Files copied to !CUSTOM_APP_PATH!"
+
+goto :copy_ok
+
+:copy_err
+echo  [!] Failed to copy one or more extension files.
+call :log "[ERROR] Copy operation failed"
+goto :err
+
+:copy_ok
 
 spicetify config custom_apps spicetify-downloader
 if errorlevel 1 (
@@ -160,7 +264,7 @@ spicetify apply
 if errorlevel 1 (
     echo.
     echo  [!] Spicetify apply failed.
-    echo      Close Spotify fully (check system tray), then run install.bat again.
+    echo      Close Spotify fully ^(check system tray^), then run install.bat again.
     echo.
     call :log "[ERROR] spicetify apply failed"
     goto :err
@@ -168,46 +272,65 @@ if errorlevel 1 (
 echo         Extension installed -- OK
 call :log "[OK] spicetify apply"
 
-::  Auto-start VBS 
 set "SERVER_PY=!BACKEND_PATH!\server.py"
 set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "VBS=!STARTUP_DIR!\SpicetifyDownloaderServer.vbs"
+set "STARTUP_CMD=!STARTUP_DIR!\SpicetifyDownloaderServer.cmd"
 
-set "PYTHONW_EXE=!PYTHON_EXE:python.exe=pythonw.exe!"
+:: Find pythonw.exe (no-console Python) in the same directory as python.exe
+for %%f in ("!PYTHON_EXE!") do set "PYTHONW_EXE=%%~dpfpythonw.exe"
 if not exist "!PYTHONW_EXE!" set "PYTHONW_EXE=!PYTHON_EXE!"
 
+:: Register auto-start via Startup folder (more reliable across locked Task Scheduler policies)
 (
-    echo Set W = CreateObject^("WScript.Shell"^)
-    echo W.Run chr^(34^) ^& "!PYTHONW_EXE!" ^& chr^(34^) ^& " " ^& chr^(34^) ^& "!SERVER_PY!" ^& chr^(34^), 0, False
-) > "!VBS!"
-
-::  Kill any existing server instances 
-echo.
-echo  Restarting background server...
-powershell -NoProfile -Command "Get-Process python,pythonw -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
-
-timeout /t 2 /nobreak >nul
-
-if exist "!VBS!" (
-    cscript //nologo "!VBS!"
+    echo @echo off
+    echo start "" "!PYTHONW_EXE!" "!SERVER_PY!"
+) > "!STARTUP_CMD!"
+if errorlevel 1 (
+    echo  [!] Note: Startup entry could not be written ^(non-critical^).
+    call :log "[WARN] Startup entry creation failed - non-critical"
 ) else (
-    start "" "!PYTHONW_EXE!" "!SERVER_PY!"
+    call :log "[OK] Startup entry created for auto-start on logon"
 )
 
+::  Kill any running server instances 
+echo.
+echo  Restarting background server...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -like '*server.py*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA 0 }" >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+:: Launch server now in background
+start "" "!PYTHONW_EXE!" "!SERVER_PY!" >nul 2>&1
+if errorlevel 1 start /B "" "!PYTHON_EXE!" "!SERVER_PY!"
+
 echo  Waiting for server to start...
-timeout /t 5 /nobreak >nul
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest http://localhost:8765/health -UseBasicParsing -TimeoutSec 5; if ($r.StatusCode -eq 200) { Write-Host '        Server started -- OK' } else { Write-Host '  [!] Server returned HTTP '$r.StatusCode } } catch { Write-Host '  [!] Server not reachable yet -- it will start on next login.' }"
+set "SERVER_OK=0"
+for /l %%i in (1,1,15) do (
+    if "!SERVER_OK!"=="0" (
+        timeout /t 1 /nobreak >nul
+        powershell -NoProfile -Command "try{Invoke-WebRequest 'http://localhost:8765/health' -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0}catch{exit 1}" >nul 2>&1
+        if not errorlevel 1 set "SERVER_OK=1"
+    )
+)
+if "!SERVER_OK!"=="1" (
+    echo         Server started -- OK
+    call :log "[OK] Server started"
+) else (
+    echo  [!] Server not responding yet.
+    echo      It will start automatically on next Windows login.
+    echo      Or run install.bat again to retry.
+    call :log "[WARN] Server did not respond during install"
+)
 call :log "[OK] Done"
 
 echo.
 echo  ==========================================
-echo    Done! Open Spotify and enjoy.
+echo    Done^! Open Spotify and enjoy.
 echo  ==========================================
 echo.
 echo   How to download music:
-echo     - RIGHT-CLICK any playlist, album, or track ^> "Download with SpotDL"
+echo     - Open album/playlist and click Spotify's default Download button
+echo     - RIGHT-CLICK any playlist, album, or track ^> "Download for Offline"
 echo     - OR press Ctrl+Shift+D
-echo     - OR click the download arrow button in the top bar
 echo.
 echo   Downloaded files: %USERPROFILE%\Music\Spotify Downloads
 echo.
@@ -237,3 +360,4 @@ goto :EOF
 :refresh_path
 for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','User')"`) do set "PATH=%%i"
 goto :EOF
+
