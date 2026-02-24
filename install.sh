@@ -94,6 +94,8 @@ if ! command -v ffmpeg &>/dev/null; then
         else
             echo "     [!] Could not install FFmpeg automatically."
             echo "         Please install it manually: https://ffmpeg.org/download.html"
+            echo "     Trying Python fallback (imageio-ffmpeg)..."
+            python3 -m pip install --quiet --upgrade imageio-ffmpeg 2>/dev/null || true
         fi
     fi
 fi

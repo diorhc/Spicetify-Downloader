@@ -108,6 +108,11 @@ if errorlevel 1 (
         echo         Trying winget as fallback...
         winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements --silent >nul 2>&1
         for /f "tokens=*" %%i in ('powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','User')"') do set "PATH=%%i"
+        ffmpeg -version >nul 2>&1
+        if errorlevel 1 (
+            echo         Trying Python fallback (imageio-ffmpeg)...
+            python -m pip install --quiet --upgrade imageio-ffmpeg >nul 2>&1
+        )
     )
 )
 echo         FFmpeg — OK

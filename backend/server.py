@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 import re
+import shutil
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -87,6 +88,7 @@ def _cleanup_loop():
 
 _spotdl_cache = {"installed": None, "checked_at": 0.0}
 _ffmpeg_cache = {"installed": None, "checked_at": 0.0}
+_spotdl_caps_cache = {"caps": None, "checked_at": 0.0}
 _CACHE_TTL = 120  # seconds
 
 
@@ -111,18 +113,29 @@ def check_ffmpeg_installed():
     now = time.time()
     if _ffmpeg_cache["installed"] is not None and (now - _ffmpeg_cache["checked_at"]) < _CACHE_TTL:
         return _ffmpeg_cache["installed"]
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-version"],
-            capture_output=True, text=True, timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        installed = result.returncode == 0
-    except Exception:
-        installed = False
+    installed = get_ffmpeg_path() is not None
     _ffmpeg_cache["installed"] = installed
     _ffmpeg_cache["checked_at"] = now
     return installed
+
+
+def get_ffmpeg_path():
+    """Return path to ffmpeg binary if available (system or managed)."""
+    # 1) system ffmpeg
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg
+
+    # 2) managed ffmpeg from imageio-ffmpeg package
+    try:
+        import imageio_ffmpeg  # type: ignore
+        managed = imageio_ffmpeg.get_ffmpeg_exe()
+        if managed and os.path.exists(managed):
+            return managed
+    except Exception:
+        pass
+
+    return None
 
 
 def auto_install_spotdl():
@@ -161,11 +174,63 @@ def auto_install_ffmpeg():
             return True
         else:
             logger.warning(f"spotdl --download-ffmpeg output: {result.stderr[:500]}")
-            # Not fatal — spotdl may still work with bundled ffmpeg
-            return False
     except Exception as e:
         logger.warning(f"FFmpeg auto-download failed: {e}")
-        return False
+
+    # Fallback: install managed ffmpeg via Python package (works without system package manager)
+    logger.info("Trying fallback FFmpeg install via imageio-ffmpeg...")
+    try:
+        pip_result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "imageio-ffmpeg"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if pip_result.returncode == 0 and get_ffmpeg_path():
+            logger.info("FFmpeg installed via imageio-ffmpeg.")
+            _ffmpeg_cache["installed"] = True
+            _ffmpeg_cache["checked_at"] = time.time()
+            return True
+        logger.warning(f"imageio-ffmpeg install failed: {pip_result.stderr[:500]}")
+    except Exception as e:
+        logger.warning(f"Fallback FFmpeg install failed: {e}")
+
+    return False
+
+
+def get_spotdl_capabilities():
+    """Detect supported CLI flags for installed spotdl version."""
+    now = time.time()
+    if _spotdl_caps_cache["caps"] is not None and (now - _spotdl_caps_cache["checked_at"]) < _CACHE_TTL:
+        return _spotdl_caps_cache["caps"]
+
+    caps = {
+        "supports_download_subcommand": False,
+        "supports_bitrate_arg": False,
+        "supports_ignore_ffmpeg_version": False,
+        "supports_ffmpeg_arg": False,
+    }
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "spotdl", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+        help_text = (result.stdout or "") + "\n" + (result.stderr or "")
+        lower = help_text.lower()
+
+        caps["supports_download_subcommand"] = " spotdl download" in lower or "{download" in lower
+        caps["supports_bitrate_arg"] = "--bitrate" in lower
+        caps["supports_ignore_ffmpeg_version"] = "--ignore-ffmpeg-version" in lower
+        caps["supports_ffmpeg_arg"] = "--ffmpeg" in lower or " -f," in lower
+    except Exception:
+        pass
+
+    _spotdl_caps_cache["caps"] = caps
+    _spotdl_caps_cache["checked_at"] = now
+    return caps
 
 
 def ensure_dependencies():
@@ -175,7 +240,8 @@ def ensure_dependencies():
             return False, "Could not install SpotDL. Check your internet connection."
     if not check_ffmpeg_installed():
         auto_install_ffmpeg()
-        # Not a hard failure — spotdl may have bundled/cached ffmpeg
+        if not check_ffmpeg_installed():
+            return False, "FFmpeg is missing. Run installer again or install dependencies from Settings page."
     return True, ""
 
 
@@ -190,12 +256,24 @@ def download_track(download_id, spotify_url, quality, download_path):
 
     os.makedirs(download_path, exist_ok=True)
 
-    cmd = [
-        sys.executable, "-m", "spotdl",
-        "download", spotify_url,
-        "--bitrate", f"{quality}k",
-        "--output", download_path,
-    ]
+    caps = get_spotdl_capabilities()
+
+    cmd = [sys.executable, "-m", "spotdl"]
+    if caps["supports_download_subcommand"]:
+        cmd.append("download")
+
+    cmd.append(spotify_url)
+    cmd.extend(["--output", download_path])
+
+    if caps["supports_bitrate_arg"]:
+        cmd.extend(["--bitrate", f"{quality}k"])
+
+    if caps["supports_ignore_ffmpeg_version"]:
+        cmd.append("--ignore-ffmpeg-version")
+
+    ffmpeg_path = get_ffmpeg_path()
+    if ffmpeg_path and caps["supports_ffmpeg_arg"]:
+        cmd.extend(["--ffmpeg", ffmpeg_path])
 
     try:
         extra = {}
@@ -219,11 +297,15 @@ def download_track(download_id, spotify_url, quality, download_path):
         of_re    = re.compile(r'(\d+)\s*/\s*(\d+)')
         done_re  = re.compile(r'Downloaded\s+(?:\".+?\"\s+)?\((\d+)', re.IGNORECASE)
 
+        tail = []
         for line in proc.stdout:
             line = line.rstrip()
             if not line:
                 continue
             logger.info(f"[spotdl] {line}")
+            tail.append(line)
+            if len(tail) > 15:
+                tail.pop(0)
 
             m_total = total_re.search(line)
             if m_total:
@@ -253,9 +335,24 @@ def download_track(download_id, spotify_url, quality, download_path):
                 ACTIVE_DOWNLOADS[download_id]["status"] = "completed"
             logger.info(f"[{download_id}] Download completed.")
         else:
+            error_message = "spotdl exited with errors."
+            if tail:
+                meaningful = None
+                for candidate in reversed(tail):
+                    c = candidate.strip()
+                    if not c:
+                        continue
+                    lower = c.lower()
+                    if any(skip in lower for skip in ("warning", "debug", "info")):
+                        continue
+                    meaningful = c
+                    break
+                if meaningful:
+                    error_message = meaningful
+
             with _download_lock:
                 ACTIVE_DOWNLOADS[download_id]["status"] = "failed"
-                ACTIVE_DOWNLOADS[download_id]["error"] = "spotdl exited with errors. Check server logs."
+                ACTIVE_DOWNLOADS[download_id]["error"] = error_message
             logger.error(f"[{download_id}] spotdl exited with code {proc.returncode}")
 
     except FileNotFoundError:
