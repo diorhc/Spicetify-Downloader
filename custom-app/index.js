@@ -94,6 +94,23 @@ function ProgressBar({ percent }) {
   );
 }
 
+function IndeterminateBar() {
+  return react.createElement(
+    "div",
+    {
+      style: {
+        background: "#282828",
+        borderRadius: 4,
+        height: 6,
+        overflow: "hidden",
+        marginTop: 8,
+        position: "relative",
+      },
+    },
+    react.createElement("div", { className: "sd-indet-bar" }),
+  );
+}
+
 function DownloadCard({ id }) {
   const [info, setInfo] = react.useState({
     status: "starting",
@@ -140,6 +157,11 @@ function DownloadCard({ id }) {
         ? "#e91429"
         : "#b3b3b3";
 
+  // Show indeterminate bar when starting/total unknown, real bar when total>0
+  const showBar = info.status === "downloading" || info.status === "starting";
+  const showRealBar = showBar && info.total > 0;
+  const showSpinBar = showBar && info.total === 0;
+
   return react.createElement(
     "div",
     {
@@ -166,9 +188,10 @@ function DownloadCard({ id }) {
       ),
       react.createElement("span", { style: { color } }, statusLabel),
     ),
-    info.status === "downloading" &&
-      info.total > 0 &&
+    showRealBar &&
       react.createElement(ProgressBar, { percent: info.percent }),
+    showSpinBar &&
+      react.createElement(IndeterminateBar),
     info.status === "failed" &&
       info.error &&
       react.createElement(
@@ -277,11 +300,10 @@ function SettingsPage() {
     "div",
     { className: "sd-wrap" },
 
-    // Header
+    // Status row (compact, no h1)
     react.createElement(
       "div",
-      { className: "sd-header" },
-      react.createElement("h1", null, "Spicetify Downloader"),
+      { className: "sd-status-row" },
       react.createElement(StatusBadge, { online }),
     ),
 
@@ -561,9 +583,8 @@ function SettingsPage() {
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const CSS = `
-  .sd-wrap { padding: 32px; max-width: 620px; color: #fff; font-family: inherit; }
-  .sd-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
-  .sd-header h1 { font-size: 26px; font-weight: 700; color: #1DB954; margin: 0; }
+  .sd-wrap { padding: 24px 32px; max-width: 620px; color: #fff; font-family: inherit; }
+  .sd-status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
   .sd-section {
     margin-bottom: 20px; padding: 18px 20px;
     background: rgba(255,255,255,.07);
@@ -598,6 +619,14 @@ const CSS = `
   .sd-alert code { background: #282828; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #fff; }
   .sd-ol { padding-left: 18px; margin: 0; color: #b3b3b3; font-size: 14px; }
   .sd-ol li { margin-bottom: 8px; line-height: 1.5; }
+  .sd-indet-bar {
+    position: absolute; height: 100%; width: 40%; border-radius: 4px;
+    background: #1DB954; animation: sd-slide 1.2s ease-in-out infinite;
+  }
+  @keyframes sd-slide {
+    0%   { left: -40%; }
+    100% { left: 100%; }
+  }
 `;
 
 // ── CSS injection ──────────────────────────────────────────────────────────

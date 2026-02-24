@@ -278,6 +278,7 @@
     var collectionName = "";
 
     function cosmos(url) {
+      // Primary: Spicetify's CosmosAsync (auto-injects auth token)
       if (
         typeof Spicetify !== "undefined" &&
         Spicetify.CosmosAsync &&
@@ -285,8 +286,17 @@
       ) {
         return Spicetify.CosmosAsync.get(url);
       }
-      // Fallback: native fetch (Spicetify injects auth cookie automatically)
-      return fetch(url, { credentials: "include" }).then(function (r) {
+      // Fallback: direct fetch with Spicetify's access token
+      var token = "";
+      try {
+        token =
+          Spicetify.Platform.AuthorizationAPI._state.token.accessToken ||
+          Spicetify.Platform.AuthorizationAPI.getState().token.accessToken ||
+          "";
+      } catch (_) {}
+      var headers = token ? { "Authorization": "Bearer " + token } : {};
+      return fetch(url, { headers: headers }).then(function (r) {
+        if (!r.ok) throw new Error("API " + r.status);
         return r.json();
       });
     }
@@ -549,16 +559,8 @@
       if (index < done) {
         upsertRowProgress(row, "completed");
       } else if (index === done && done < total) {
-        var currentTrackPct = null;
-        if (typeof activeDownload.percent === "number" && total > 0) {
-          currentTrackPct = Math.round(
-            Math.max(0, activeDownload.percent - (done * 100) / total) * total,
-          );
-          if (currentTrackPct > 100) currentTrackPct = 100;
-        }
-        // 0 % renders as an invisible empty circle — show spinner instead
-        if (!currentTrackPct) currentTrackPct = null;
-        upsertRowProgress(row, "active", currentTrackPct);
+        // Per-track sub-progress isn't available from yt-dlp stdout; show spinner
+        upsertRowProgress(row, "active", null);
       }
     });
   }

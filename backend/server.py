@@ -526,20 +526,15 @@ def build_ytdlp_cmd(search_query, quality, download_path, filename=None):
     cmd.append(f"ytsearch1:{search_query}")
 
     ffmpeg_path = get_ffmpeg_path()
-    ffprobe_path = get_ffprobe_path()
-    can_postprocess = bool(ffmpeg_path and ffprobe_path)
+    can_postprocess = bool(ffmpeg_path)  # ffprobe not required; ffmpeg alone handles conversion
 
     # Always pick best audio stream.
     cmd.extend(["-f", "bestaudio/best"])
 
-    # Convert to MP3 only when full ffmpeg toolchain is available.
+    # Convert to MP3 when ffmpeg is available (ffprobe is NOT required for conversion).
     if can_postprocess:
         cmd.extend(["-x", "--audio-format", "mp3"])
-
-    # Quality mapping
-    quality_map = {"128": "128K", "160": "160K", "320": "320K"}
-    if can_postprocess:
-        cmd.extend(["--audio-quality", quality_map.get(quality, "320K")])
+        cmd.extend(["--audio-quality", {"128": "128K", "160": "160K", "320": "320K"}.get(quality, "320K")])
 
     # Output template
     if filename:
@@ -558,7 +553,7 @@ def build_ytdlp_cmd(search_query, quality, download_path, filename=None):
         cmd.extend(["--ffmpeg-location", os.path.dirname(os.path.abspath(ffmpeg_path))])
 
     if not can_postprocess:
-        logger.warning("ffprobe not found; yt-dlp will download original audio format without MP3 conversion")
+        logger.warning("FFmpeg not found; yt-dlp will download in original audio format without MP3 conversion")
 
     logger.info(f"yt-dlp command: {' '.join(cmd)}")
     return cmd
@@ -849,27 +844,14 @@ def download_with_ytdlp(download_id, spotify_url, quality, download_path, tracks
 
             tracks = scrape_spotify_tracks(spotify_url)
             if not tracks:
-                title = spotify_url_to_search_query(spotify_url)
-                if title:
-                    with _download_lock:
-                        ACTIVE_DOWNLOADS[download_id]["total"] = 1
-                    success, err = download_single_ytdlp(title, quality, download_path, title)
-                    with _download_lock:
-                        if success:
-                            ACTIVE_DOWNLOADS[download_id]["done"] = 1
-                            ACTIVE_DOWNLOADS[download_id]["status"] = "completed"
-                        else:
-                            ACTIVE_DOWNLOADS[download_id]["status"] = "failed"
-                            ACTIVE_DOWNLOADS[download_id]["error"] = err
-                    return success
-                else:
-                    with _download_lock:
-                        ACTIVE_DOWNLOADS[download_id]["status"] = "failed"
-                        ACTIVE_DOWNLOADS[download_id]["error"] = (
-                            "Could not retrieve track list. "
-                            "Try the spotdl engine or paste a direct track URL."
-                        )
-                    return False
+                with _download_lock:
+                    ACTIVE_DOWNLOADS[download_id]["status"] = "failed"
+                    ACTIVE_DOWNLOADS[download_id]["error"] = (
+                        f"Could not retrieve the {content_type} track list from Spotify. "
+                        "Try switching to the 'spotdl' engine (Settings page) or "
+                        "download individual tracks instead."
+                    )
+                return False
 
             with _download_lock:
                 ACTIVE_DOWNLOADS[download_id]["total"] = len(tracks)

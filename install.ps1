@@ -17,8 +17,14 @@
     NO API KEYS REQUIRED — works out of the box.
 #>
 
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
+# Native-command stderr must NOT be treated as a fatal error.
+# ErrorActionPreference stays Continue; individual critical steps use -ErrorAction Stop.
+$ErrorActionPreference = 'Continue'
+$ProgressPreference    = 'SilentlyContinue'
+
+# Force UTF-8 so em-dashes and arrows render correctly in all terminals.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+try { $OutputEncoding              = [System.Text.Encoding]::UTF8 } catch {}
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -77,10 +83,10 @@ function Update-PathEnvironment {
 
 Write-Host ""
 Write-Host "  ============================================" -ForegroundColor Green
-Write-Host "    Spicetify Downloader — One-Line Installer" -ForegroundColor Green
+Write-Host "    Spicetify Downloader -- One-Line Installer" -ForegroundColor Green
 Write-Host "  ============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  No API keys needed. Just wait — fully automatic." -ForegroundColor Gray
+Write-Host "  No API keys needed. Just wait -- fully automatic." -ForegroundColor Gray
 Write-Host ""
 
 $totalSteps = 7
@@ -90,9 +96,9 @@ $totalSteps = 7
 Write-Step 1 $totalSteps "Checking Python..."
 
 if (-not (Test-CommandExists "python")) {
-    Write-Host "          Not found — installing Python via winget..." -ForegroundColor Yellow
+    Write-Host "          Not found -- installing Python via winget..." -ForegroundColor Yellow
     if (Test-CommandExists "winget") {
-        winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements --silent 2>$null
+        try { $null = & winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements --silent 2>&1 } catch {}
         Update-PathEnvironment
     }
     if (-not (Test-CommandExists "python")) {
@@ -110,14 +116,14 @@ $pythonwExe = Join-Path (Split-Path $pythonExe) "pythonw.exe"
 if (-not (Test-Path $pythonwExe)) { $pythonwExe = $pythonExe }
 
 # Ensure pip
-python -m ensurepip --upgrade 2>$null | Out-Null
+try { $null = & python -m ensurepip --upgrade 2>&1 } catch {}
 
 # ── 2. Spicetify ───────────────────────────────────────────────────────────
 
 Write-Step 2 $totalSteps "Checking Spicetify..."
 
 if (-not (Test-CommandExists "spicetify")) {
-    Write-Host "          Not found — installing Spicetify..." -ForegroundColor Yellow
+    Write-Host "          Not found -- installing Spicetify..." -ForegroundColor Yellow
     try {
         Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" |
             Invoke-Expression 2>$null
@@ -148,17 +154,21 @@ Write-OK "Spicetify $spVer"
 
 Write-Step 3 $totalSteps "Installing download engines (spotdl + yt-dlp)..."
 
-python -m pip install --quiet --upgrade spotdl 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "spotdl install had warnings (may still work)"
+function Install-PythonPackage([string]$pkg) {
+    try {
+        $out = & python -m pip install --quiet --upgrade $pkg 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "$pkg install exited $LASTEXITCODE (may still work)"
+        } else {
+            Write-Host "          $pkg -- OK" -ForegroundColor Green
+        }
+    } catch {
+        Write-Warn "$pkg install error: $_"
+    }
 }
-Write-Host "          spotdl -- OK" -ForegroundColor Green
 
-python -m pip install --quiet --upgrade yt-dlp 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "yt-dlp install had warnings (may still work)"
-}
-Write-Host "          yt-dlp -- OK" -ForegroundColor Green
+Install-PythonPackage 'spotdl'
+Install-PythonPackage 'yt-dlp'
 
 # ── 4. FFmpeg ───────────────────────────────────────────────────────────────
 
@@ -169,7 +179,7 @@ $ffmpegReady = Test-CommandExists "ffmpeg"
 if (-not $ffmpegReady) {
     Write-Host "          Downloading FFmpeg via spotdl..." -ForegroundColor Yellow
     try {
-        Write-Output "y" | python -m spotdl --download-ffmpeg 2>$null | Out-Null
+        $null = Write-Output 'y' | & python -m spotdl --download-ffmpeg 2>&1
     } catch {}
     $ffmpegReady = Test-CommandExists "ffmpeg"
 }
@@ -185,24 +195,24 @@ if (-not $ffmpegReady) {
 
 if (-not $ffmpegReady -and (Test-CommandExists "winget")) {
     Write-Host "          Trying winget..." -ForegroundColor Yellow
-    winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements --silent 2>$null | Out-Null
+    try { $null = & winget install Gyan.FFmpeg --accept-package-agreements --accept-source-agreements --silent 2>&1 } catch {}
     Update-PathEnvironment
     $ffmpegReady = Test-CommandExists "ffmpeg"
 }
 
 if (-not $ffmpegReady) {
     Write-Host "          Trying imageio-ffmpeg..." -ForegroundColor Yellow
-    python -m pip install --quiet --upgrade imageio-ffmpeg 2>$null | Out-Null
+    try { $null = & python -m pip install --quiet --upgrade imageio-ffmpeg 2>&1 } catch {}
     try {
-        $managed = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())" 2>$null
-        if ($managed -and (Test-Path $managed)) { $ffmpegReady = $true }
+        $managed = & python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())" 2>&1
+        if ($managed -and (Test-Path ($managed.ToString().Trim()))) { $ffmpegReady = $true }
     } catch {}
 }
 
 if ($ffmpegReady) {
     Write-OK "FFmpeg"
 } else {
-    Write-Warn "FFmpeg not found — downloads may fail without it."
+    Write-Warn "FFmpeg not found -- downloads may fail without it."
     Write-Warn "Install manually: https://ffmpeg.org/download.html"
 }
 
@@ -213,8 +223,8 @@ Write-Step 5 $totalSteps "Downloading extension files..."
 # Detect spicetify userdata path
 $spicetifyUserdata = $null
 try {
-    $spicetifyUserdata = (spicetify path userdata 2>$null).Trim()
-} catch {}
+    $spicetifyUserdata = (& spicetify path userdata 2>&1).ToString().Trim()
+} catch { $spicetifyUserdata = "" }
 if (-not $spicetifyUserdata) {
     $spicetifyUserdata = Join-Path $env:APPDATA "spicetify"
 }
@@ -232,7 +242,7 @@ foreach ($file in $CUSTOM_APP_FILES) {
     $destPath = Join-Path $customAppPath $fileName
     $url      = "$REPO_RAW/$file"
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destPath 2>$null
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destPath -ErrorAction Stop
     } catch {
         Write-Warn "Failed to download: $file"
         $downloadFailed = $true
@@ -244,7 +254,7 @@ foreach ($file in $BACKEND_FILES) {
     $destPath = Join-Path $backendPath $fileName
     $url      = "$REPO_RAW/$file"
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destPath 2>$null
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destPath -ErrorAction Stop
     } catch {
         Write-Warn "Failed to download: $file"
         $downloadFailed = $true
@@ -261,8 +271,8 @@ if ($downloadFailed) {
 
 Write-Step 6 $totalSteps "Configuring Spicetify..."
 
-spicetify config custom_apps $APP_NAME 2>$null
-spicetify apply 2>$null
+try { $null = & spicetify config custom_apps $APP_NAME 2>&1 } catch {}
+try { $null = & spicetify apply 2>&1 } catch {}
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "spicetify apply failed. Close Spotify fully and re-run this installer."
 } else {
@@ -300,8 +310,8 @@ $serverOK = $false
 for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 1
     try {
-        $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$SERVER_PORT/health" -TimeoutSec 2 2>$null
-        if ($resp.StatusCode -eq 200) {
+        $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$SERVER_PORT/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
+        if ($resp -and $resp.StatusCode -eq 200) {
             $serverOK = $true
             break
         }
@@ -321,7 +331,7 @@ Write-Host "  ============================================" -ForegroundColor Gre
 Write-Host "    Installation Complete!" -ForegroundColor Green
 Write-Host "  ============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  No API keys needed — everything works out of the box!" -ForegroundColor Gray
+Write-Host "  No API keys needed -- everything works out of the box!" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  How to download music:" -ForegroundColor White
 Write-Host "    - Open album/playlist and click Spotify's Download button" -ForegroundColor Gray
